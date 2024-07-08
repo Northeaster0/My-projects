@@ -1,0 +1,162 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+#define MAX_IDENTIFIER_SIZE 10
+#define MAX_INTEGER_SIZE 8
+
+// Token türlerini tanımlama
+typedef enum {
+    Identifier,             // Tanımlayıcı
+    IntConst,               // Tamsayı sabiti
+    Operator,               // Operatör
+    LeftCurlyBracket,       // Sol süslü parantez
+    RightCurlyBracket,      // Sağ süslü parantez
+    String,                 // Dize sabiti
+    Keyword,                // Anahtar kelime
+    EndOfLine,              // Satır sonu
+    Comma,                  // Virgül
+    Error                   // Hata
+} TokenType;
+
+// Token structı tanımlama
+typedef struct {
+    TokenType type;
+    char value[257]; // Maksimum dize sabiti boyutu 256 karakter olarak alıyoruz
+} Token;
+
+// Bir karakterin alfanümerik olup olmadığını kontrol eden işlev (isalnum)
+int is_valid_identifier_char(char ch) {
+    return isalnum(ch) || ch == '_';
+}
+
+// Token'ı çıktı dosyasına yazma işlevi
+void write_token(FILE *out, TokenType type, const char *value) {
+    const char *token_names[] = {
+        "Identifier",           // Tanımlayıcı
+        "IntConst",             // Tamsayı sabiti
+        "Operator",             // Operatör
+        "LeftCurlyBracket",     // Sol süslü parantez
+        "RightCurlyBracket",    // Sağ süslü parantez
+        "String",               // Dize sabiti
+        "Keyword",              // Anahtar kelime
+        "EndOfLine",            // Satır sonu
+        "Comma",                // Virgül
+        "Error"                 // Hata
+    };
+
+    fprintf(out, "%s(%s)\n", token_names[type], value);
+}
+
+// Bir satırı tokenlara bölen işlev
+void tokenize(const char *line, FILE *out) {
+    char temp[MAX_IDENTIFIER_SIZE + 1]; // Tanımlayıcılar için tampon
+    int temp_index = 0;
+    int in_comment = 0;
+
+    for (int i = 0; line[i] != '\0'; i++) {
+        if (in_comment) {
+            if (line[i] == '*' && line[i + 1] == '/') {
+                in_comment = 0;
+                i++; // Yorumu sonlandıran '*' karakterini atla
+            }
+            continue; // Yorum içindeki karakterleri atla
+        }
+
+        if (isspace(line[i])) {
+            continue; // Boşluk karakterlerini atla
+        }
+        else if (isalpha(line[i])) {
+            // Harf olup olmadığının kontrolü
+            while (is_valid_identifier_char(line[i]) && temp_index < MAX_IDENTIFIER_SIZE) {
+                temp[temp_index++] = line[i++];
+            }
+            if (temp_index == MAX_IDENTIFIER_SIZE) {
+                write_token(out, Error, "Identifier çok uzun");
+                return;
+            }
+            temp[temp_index] = '\0';
+            write_token(out, Identifier, temp);
+            temp_index = 0;
+            i--; // Tanımlayıcı olmayan karakteri yeniden işlemek için bir karakter geri git
+        }
+        else if (isdigit(line[i])) {
+            // Tamsayı sabitini oku
+            while (isdigit(line[i]) && temp_index < MAX_INTEGER_SIZE) {
+                temp[temp_index++] = line[i++];
+            }
+            if (temp_index == MAX_INTEGER_SIZE && isdigit(line[i])) {
+                write_token(out, Error, "Integer çok uzun");
+                return;
+            }
+            temp[temp_index] = '\0';
+            write_token(out, IntConst, temp);
+            temp_index = 0;
+            i--; // Rakam olmayan karakteri yeniden işlemek için bir karakter geri git
+        }
+        else if (line[i] == '"') {
+            // Dize sabitini oku
+            temp[temp_index++] = '"';
+            i++;
+            while (line[i] != '"' && temp_index < 256) {
+                temp[temp_index++] = line[i++];
+            }
+            temp[temp_index++] = '"';
+            temp[temp_index] = '\0';
+            write_token(out, String, temp);
+            temp_index = 0;
+        }
+        else if (line[i] == '/') {
+            if (line[i + 1] == '*') {
+                in_comment = 1;
+                i++; // Yorumu başlatan '/' karakterini atla
+            }
+            else {
+                write_token(out, Operator, "/");
+            }
+        }
+
+    }
+
+    if (in_comment) {
+        write_token(out, Error, "Bitmemiş comment satırı");
+    }
+}
+
+// Giriş dosyasını işleyen parça
+void process_file(const char *input_file, const char *output_file) {
+    FILE *file = fopen(input_file, "r");
+    if (file == NULL) {
+        perror("Dosya açma hatası");
+        exit(EXIT_FAILURE);
+    }
+
+    FILE *out = fopen(output_file, "w");
+    if (out == NULL) {
+        perror("Çıktı dosyası açma hatası");
+        exit(EXIT_FAILURE);
+    }
+
+    char line[1000]; // Maksimum satır uzunluğu 1000 karakter olarak varsayılmıştır
+    while (fgets(line, sizeof(line), file)) {
+        // Satır sonu karakterini kaldır (varsa)
+        size_t len = strlen(line);
+        if (len > 0 && line[len - 1] == '\n') {
+            line[len - 1] = '\0';
+        }
+        tokenize(line, out);
+    }
+
+    fclose(file);
+    fclose(out);
+}
+
+// Ana işlev
+int main() {
+    const char *input_file = "code.sta";
+    const char *output_file = "code.lex";
+    process_file(input_file, output_file);
+    printf("Leksikal analiz tamamlandi. Cikti %s dosyasina yazildi.\n", output_file);
+    return 0;
+}
